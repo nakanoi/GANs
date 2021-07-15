@@ -1,1 +1,2 @@
-from GANGANGAN.models.gan import DCGAN
+from models.dcgan import DCGAN
+from models.gan import GAN
