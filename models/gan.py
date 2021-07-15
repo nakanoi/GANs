@@ -1,6 +1,5 @@
-from tensorflow.keras.layers import (Input, Reshape, Dense, Conv2D,
-                                     BatchNormalization, UpSampling2D,
-                                     Dropout, Flatten, Conv2DTranspose,
+from tensorflow.keras.layers import (Input, Reshape, Dense, Flatten,
+                                     BatchNormalization, Dropout,
                                      )
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
@@ -8,66 +7,60 @@ from tensorflow.keras.models import Model
 from models.basemodel import BaseModel, np, os, plt
 
 
-class DCGAN(BaseModel):
+class GAN(BaseModel):
     def __init__(self,
                  input_dim = (28, 28, 1),
-                 di_conv_filters = [64, 128, 512, 1024],
-                 di_conv_kernels = [5, 5, 5, 5],
-                 di_conv_strides = [2, 2, 2, 1],
-                 di_batch_norm = None,
-                 di_dropout = 0.2,
+                 di_neurons = (512, 256, 1),
+                 di_batch_norm = 0.8,
+                 di_dropout = None,
                  di_active = 'leakrelu',
-                 alpha = 0.2,
-                 di_lr = 0.0008,
-                 ge_initial_size = (4, 4, 1024),
-                 ge_upsample = [2, 2, 1, 1],
-                 ge_conv_filters = [512, 256, 128, 3],
-                 ge_conv_kernels = [5, 5, 5, 5],
-                 ge_conv_strides = [1, 1, 1, 1],
-                 ge_batch_norm = None,
-                 ge_active = 'relu',
-                 ge_lr = 0.0004,
+                 di_alpha = 0.2,
+                 di_lr = 0.0002,
+                 ge_neurons = (256, 512, 1024),
+                 ge_batch_norm = 0.8,
+                 ge_dropout = None,
+                 ge_active = 'leakrelu',
+                 ge_alpha = 0.2,
+                 ge_lr = 0.0002,
                  optimizer = 'adam',
                  beta1 = 0.5,
                  z_dim = 100,
                  weight_init = (0, 0.02),
+                 k = 1,
                  ):
+        super().__init__()
 
         self.input_dim = input_dim
 
-        self.di_conv_filters = di_conv_filters
-        self.di_conv_kernels = di_conv_kernels
-        self.di_conv_strides = di_conv_strides
+        self.di_neurons = di_neurons
         self.di_batch_norm = di_batch_norm
         self.di_dropout = di_dropout
         self.di_active = di_active
-        self.alpha = alpha
+        self.di_alpha = di_alpha
         self.di_lr = di_lr
 
-        self.ge_initial_size = ge_initial_size
-        self.ge_upsample = ge_upsample
-        self.ge_conv_filters = ge_conv_filters
-        self.ge_conv_kernels = ge_conv_kernels
-        self.ge_conv_strides = ge_conv_strides
+        self.ge_neurons = ge_neurons
         self.ge_batch_norm = ge_batch_norm
+        self.ge_dropout = ge_dropout
         self.ge_active = ge_active
+        self.ge_alpha = ge_alpha
         self.ge_lr = ge_lr
 
         self.opt = optimizer
         self.beta1 = beta1
         self.z_dim = z_dim
+        self.k = k
         if weight_init is None:
             weight_init = (0, 1)
         self.weight_init = RandomNormal(mean=weight_init[0], stddev=weight_init[1])
 
-        self.di_len = len(di_conv_filters)
-        self.ge_len = len(ge_conv_filters)
+        self.di_len = len(di_neurons)
+        self.ge_len = len(ge_neurons)
         self.di_real_lss = []
         self.di_fake_lss = []
         self.di_lss = []
         self.ge_lss = []
 
-        super().__init__()
         self.build_generator()
         self.build_discriminator()
         self.build_adversal()
@@ -76,36 +69,19 @@ class DCGAN(BaseModel):
         ge_input = Input(shape=(self.z_dim, ), name='G_input')
         x = ge_input
 
-        x = Dense(np.prod(self.ge_initial_size),
-                  kernel_initializer=self.weight_init)(x)
-        x = BatchNormalization(momentum=self.ge_batch_norm)(x)
-        x = self.activation(self.ge_active)(x)
-        x = Reshape(self.ge_initial_size)(x)
-
         for i in range(self.ge_len):
-            if self.ge_upsample[i] == 2:
-                x = UpSampling2D()(x)
-                x = Conv2D(filters=self.ge_conv_filters[i],
-                           kernel_size=self.ge_conv_kernels[i],
-                           strides=self.ge_conv_strides[i],
-                           padding='same',
-                           kernel_initializer=self.weight_init,
-                           name='G_conv_' + str(i),
-                           )(x)
-            else:
-                x = Conv2DTranspose(filters=self.ge_conv_filters[i],
-                                    kernel_size=self.ge_conv_kernels[i],
-                                    strides=self.ge_conv_strides[i],
-                                    padding='same',
-                                    kernel_initializer=self.weight_init,
-                                    name='G_conv_' + str(i),
-                                    )(x)
+            x = Dense(units=self.ge_neurons[i],
+                      kernel_initializer=self.weight_init)(x)
+            x = BatchNormalization(momentum=self.ge_batch_norm)(x)
+            x = self.activation(self.ge_active, alpha=self.ge_alpha)(x)
 
-            if i < self.ge_len - 1:
-                x = BatchNormalization(momentum=self.ge_batch_norm)(x)
-                x = self.activation(self.ge_active)(x)
-            else:
-                x = self.activation('tanh')(x)
+            if self.ge_dropout is not None:
+                x = Dropout(self.ge_dropout)(x)
+
+        x = Dense(np.prod(self.input_dim))(x)
+        x = self.activation('tanh')(x)
+        x = Reshape(self.input_dim)(x)
+
         ge_output = x
         self.generator = Model(ge_input, ge_output)
 
@@ -115,22 +91,20 @@ class DCGAN(BaseModel):
     def build_discriminator(self):
         di_input = Input(shape=self.input_dim, name='D_input')
         x = di_input
+        x = Flatten()(x)
 
         for i in range(self.di_len):
-            x = Conv2D(filters=self.di_conv_filters[i],
-                       kernel_size=self.di_conv_kernels[i],
-                       strides=self.di_conv_strides[i],
-                       padding='same',
-                       kernel_initializer=self.weight_init,
-                       name='D_conv_' + str(i),
-                       )(x)
+            x = Dense(units=self.di_neurons[i],
+                      kernel_initializer=self.weight_init)(x)
             x = BatchNormalization(momentum=self.di_batch_norm)(x)
-            x = self.activation(self.di_active, self.alpha)(x)
-            x = Dropout(rate=self.di_dropout)(x)
 
-        x = Flatten()(x)
-        x = Dense(1, activation='sigmoid',
-                  kernel_initializer=self.weight_init)(x)
+            if i == self.di_len - 1:
+                x = self.activation('sigmoid')(x)
+            else:
+                x = self.activation(self.di_active, alpha=self.di_alpha)(x)
+                if self.di_dropout is not None:
+                    x = Dropout(rate=self.di_dropout)(x)
+
         di_output = x
         self.discriminator = Model(di_input, di_output)
 
@@ -150,7 +124,6 @@ class DCGAN(BaseModel):
         self.combined.compile(loss='binary_crossentropy',
                            optimizer=self.optimizer(self.ge_lr),
                            metrics=['accuracy'],
-                           experimental_run_tf_function=False,
                            )
 
         setattr(self.combined, 'model_name', 'combined')
@@ -193,22 +166,33 @@ class DCGAN(BaseModel):
 
     def fit(self, x_train, batch_size, max_epochs, show_every_n):
         for epoch in range(max_epochs):
-            di_hist_real, di_hist_fake = self.fit_discriminator(x_train,
-                                                                batch_size,
-                                                                )
-            ge_hist = self.fit_generator(batch_size)
+            for j in range(self.k):
+                di_hist_real, di_hist_fake = self.fit_discriminator(x_train,
+                                                                    batch_size,
+                                                                    )
+                self.di_real_lss.append(di_hist_real.history['loss'][0])
+                self.di_fake_lss.append(di_hist_fake.history['loss'][0])
+                self.di_lss.append(0.5 * (di_hist_real.history['loss'][0] + 
+                                      di_hist_fake.history['loss'][0]))
 
-            self.di_real_lss.append(di_hist_real.history['loss'])
-            self.di_fake_lss.append(di_hist_fake.history['loss'])
-            self.di_lss.append(0.5 * (di_hist_real.history['loss'] +
-                                      di_hist_fake.history['loss']))
-            self.ge_lss.append(ge_hist.history['loss'])
+            ge_hist = self.fit_generator(batch_size)
+            self.ge_lss.append(ge_hist.history['loss'][0])
 
             if epoch % show_every_n == 0 or epoch == max_epochs - 1:
-                self.show_img(3, epoch, '.', 'sample{}.png'.format(epoch))
-                self.plot_loss()
+                print('|D|Total %.4f, Real %.4f, Fake %.4f\n|G|%.4f' %
+                      (self.di_lss[-1],
+                       self.di_real_lss[-1],
+                       self.di_real_lss[-1],
+                       self.ge_lss[-1])
+                      )
+                self.show_img(3, epoch, './imgs', 'sample{}.png'.format(epoch))
+                self.save_weights(file_name='weights_{}.h5'.format(epoch))
+        self.plot_loss()
 
     def show_img(self, img_num, epoch, folder, file_name='image.ong'):
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, file_name)
+
         fig, axes = plt.subplots(1,
                                  img_num,
                                  figsize=(self.input_dim[0] * img_num,
@@ -225,7 +209,7 @@ class DCGAN(BaseModel):
             axes[i].set_title('Epoch : {}'.format(epoch))
             axes[i].axis('off')
 
-        fig.savefig(os.path.join(folder, file_name))
+        fig.savefig(path)
         plt.show()
         plt.cla()
         plt.clf()
@@ -240,6 +224,7 @@ class DCGAN(BaseModel):
         ax3.plot(len(self.di_lss), self.di_lss)
         ax4 = fig.add_subplot(141)
         ax4.plot(len(self.ge_lss), self.ge_lss)
+
         plt.show()
         plt.cla()
         plt.clf()
