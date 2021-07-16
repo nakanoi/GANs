@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 from tensorflow.keras.layers import (Input, Reshape, Dense, Conv2D,
                                      BatchNormalization, UpSampling2D,
                                      Dropout, Flatten, Conv2DTranspose,
@@ -5,7 +7,7 @@ from tensorflow.keras.layers import (Input, Reshape, Dense, Conv2D,
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
 
-from models.basemodel import BaseModel, np, os, plt
+from models.basemodel import BaseModel, DataLoader, np, os
 
 
 class DCGAN(BaseModel):

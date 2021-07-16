@@ -1,10 +1,12 @@
+import matplotlib.pyplot as plt
+
 from tensorflow.keras.layers import (Input, Reshape, Dense, Flatten,
                                      BatchNormalization, Dropout,
                                      )
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
 
-from models.basemodel import BaseModel, np, os, plt
+from models.basemodel import BaseModel, DataLoader, np, os
 
 
 class GAN(BaseModel):
@@ -13,13 +15,13 @@ class GAN(BaseModel):
                  di_neurons = (512, 256, 1),
                  di_batch_norm = 0.8,
                  di_dropout = None,
-                 di_active = 'leakrelu',
+                 di_active = 'leakyrelu',
                  di_alpha = 0.2,
                  di_lr = 0.0002,
                  ge_neurons = (256, 512, 1024),
                  ge_batch_norm = 0.8,
                  ge_dropout = None,
-                 ge_active = 'leakrelu',
+                 ge_active = 'leakyrelu',
                  ge_alpha = 0.2,
                  ge_lr = 0.0002,
                  optimizer = 'adam',
