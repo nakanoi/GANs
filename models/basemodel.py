@@ -16,17 +16,17 @@ class BaseModel:
     def optimizer(self, lr):
         opt = self.opt.lower()
         if opt == 'rmsprop':
-            optimizer = RMSprop(lr=lr)
+            optimizer = RMSprop(learning_rate=lr)
         elif opt == 'sgd':
-            optimizer = SGD(lr=lr)
+            optimizer = SGD(learning_rate=lr)
         elif opt == 'adagrad':
-            optimizer = Adagrad(lr=lr)
+            optimizer = Adagrad(learning_rate=lr)
         elif opt == 'adadelta':
-            optimizer = Adadelta(lr=lr)
+            optimizer = Adadelta(learning_rate=lr)
         elif opt == 'adam' and self.beta1:
-            optimizer = Adam(lr=lr, beta_1=self.beta1)
+            optimizer = Adam(learning_rate=lr, beta_1=self.beta1)
         else:
-            optimizer = Adam(lr=lr)
+            optimizer = Adam(learning_rate=lr)
 
         return optimizer
 
