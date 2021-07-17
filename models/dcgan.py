@@ -33,6 +33,10 @@ class DCGAN(BaseModel):
                  beta1 = 0.5,
                  z_dim = 100,
                  weight_init = (0, 0.02),
+                 start_epoch = 0,
+                 k = 1,
+                 loader = mnist,
+                 data_name = '',
                  ):
 
         self.input_dim = input_dim
@@ -61,6 +65,15 @@ class DCGAN(BaseModel):
         if weight_init is None:
             weight_init = (0, 1)
         self.weight_init = RandomNormal(mean=weight_init[0], stddev=weight_init[1])
+
+        self.epochs = start_epoch
+        self.k = k
+        self.data_name = data_name
+
+        if loader is None:
+            self.loader = DataLoader(self.data_name, tuple(input_dim[:2]))
+        else:
+            self.loader = loader
 
         self.di_len = len(di_conv_filters)
         self.ge_len = len(ge_conv_filters)
@@ -193,7 +206,9 @@ class DCGAN(BaseModel):
                                               )
         return di_hist_real, di_hist_fake
 
-    def fit(self, x_train, batch_size, max_epochs, show_every_n):
+    def fit(self, batch_size, max_epochs, show_every_n):
+        x_train = self.loader
+
         for epoch in range(max_epochs):
             di_hist_real, di_hist_fake = self.fit_discriminator(x_train,
                                                                 batch_size,

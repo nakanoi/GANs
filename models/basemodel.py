@@ -1,7 +1,6 @@
 import os, pickle
 import numpy as np
 import imageio
-from PIL import Image
 from glob import glob
 
 from tensorflow.keras.optimizers import (Adam, RMSprop, SGD, Adagrad,
@@ -67,7 +66,7 @@ class BaseModel:
         with open(file_name, 'wb') as f:
             pickle.dumps(*self.params, f)
 
-    def save_weights(self, folder='.', file_name='weights.ht'):
+    def save_weights(self, folder='.', file_name='weights.h5'):
         folder = os.path.join(folder, 'weights')
         os.makedirs(folder, exist_ok=True)
 
@@ -85,7 +84,7 @@ class BaseModel:
 
     def load_models(self, folder='.'):
         for name, model in self.models.imtes():
-            file_name = os.path.join(folder, 'models', name + '.png')
+            file_name = os.path.join(folder, 'models', name + '.h5')
             model.load_weights(file_name)
 
 
@@ -94,10 +93,16 @@ class DataLoader:
         self.dataset = dataset
         self.shape = shape
 
+        section = 'gan'
+        self.folder = './saved/{}/'.format(section) + '_' + dataset
+        os.makedirs(os.path.join(self.folder, 'graph'), exist_ok=True)
+        os.makedirs(os.path.join(self.folder, 'images'), exist_ok=True)
+        os.makedirs(os.path.join(self.folder, 'weights'), exist_ok=True)
+
     def load_batch(self, batch_size=1, is_testing=False):
         data_type = 'train' if not is_testing else 'val'
-        path_A = glob('./data/{}/{}A/*'.format(self.dataset, data_type))
-        path_B = glob('./data/{}/{}B/*'.format(self.dataset, data_type))
+        path_A = glob('./datasets/{}/{}A/*'.format(self.dataset, data_type))
+        path_B = glob('./datasets/{}/{}B/*'.format(self.dataset, data_type))
         self.n_batches = min(len(path_A), len(path_B)) // batch_size
 
         path_A = np.random.choice(path_A,
@@ -126,14 +131,14 @@ class DataLoader:
             yield imgs_A, imgs_B
 
     def load_img(self, path):
-        img = imageio.imread(path, pilmode='RGB').astype(np.uint8)
+        img = imageio.imread(path, pilmode='gray').astype(np.uint8)
         img = np.array(img) / 127.5 - 1.0
 
         return img[np.newaxis, :, :, :]
 
     def load_data(self, domain, batch_size=1, is_testing=False):
         data_type = 'train{}'.format(domain) if not is_testing else 'test{}'.format(domain)
-        path = glob('./data/{}/{}/*'.foramt(self.dataset, data_type))
+        path = glob('./datasets/{}/{}/*'.foramt(self.dataset, data_type))
         batch_images = np.random.choice(path, size=batch_size)
         imgs = np.array([0 for _ in range(batch_size)])
 

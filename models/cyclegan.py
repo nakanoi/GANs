@@ -49,8 +49,10 @@ class CycleGAN(BaseModel):
                  di_filters = 64,
                  opt = 'adam',
                  beta1 = 0.5,
+                 weight_init = (0, 0.02),
                  start_epoch = 0,
                  k = 1,
+                 loader = None,
                  data_name = '',
                  ):
         super().__init__()
@@ -65,11 +67,19 @@ class CycleGAN(BaseModel):
         self.di_filters = di_filters
         self.opt = opt
         self.beta1 = beta1
+
+        if weight_init is None:
+            weight_init = (0, 1)
+        self.weight_init = RandomNormal(mean=weight_init[0], stddev=weight_init[1])
+
         self.epochs = start_epoch
         self.k = k
         self.data_name = data_name
 
-        self.loader = DataLoader(self.data_name, tuple(input_dim[:2]))
+        if loader is None:
+            self.loader = DataLoader(self.data_name, tuple(input_dim[:2]))
+        else:
+            self.loader = loader
 
         self.img_row = input_dim[0]
         self.img_col = input_dim[1]
@@ -79,14 +89,13 @@ class CycleGAN(BaseModel):
         patch = int(self.img_row / 2 ** 3)
         self.disc_patch = (patch, patch, 1)
 
-        self.weight_init = RandomNormal(mean=0.0, stddev=0.02,)
         self.di_lss, self.ge_lss = [], []
         self.buf_A = deque(maxlen=self.buf_maxlen)
         self.buf_B = deque(maxlen=self.buf_maxlen)
 
         self.compile_model()
 
-    def build_generator(self):
+    def build_generator(self, name=''):
         def conv7s1(layer, filters, final):
             y = Conv2D(
                 filters=filters,
@@ -185,9 +194,9 @@ class CycleGAN(BaseModel):
         y = upsample(y, self.ge_filters)
         y = conv7s1(y, 3, True)
 
-        return Model(img, y)
+        return Model(img, y, name='Genarator_' + name)
 
-    def build_discriminator(self):
+    def build_discriminator(self, name=''):
         def conv4(layer, filters, strides=2, norm=True):
             y = Conv2D(
                 filters=filters,
@@ -221,11 +230,11 @@ class CycleGAN(BaseModel):
             kernel_initializer=self.weight_init,
             )(y)
 
-        return Model(img, y)
+        return Model(img, y, name='Discriminator_' + name)
 
     def compile_model(self):
-        self.di_A = self.build_discriminator()
-        self.di_B = self.build_discriminator()
+        self.di_A = self.build_discriminator(name='A')
+        self.di_B = self.build_discriminator(name='B')
         self.di_A.compile(
             loss='mse',
             optimizer=self.optimizer(self.lr),
@@ -237,8 +246,8 @@ class CycleGAN(BaseModel):
             metrics=['accuracy'],
             )
 
-        self.ge_AB = self.build_generator()
-        self.ge_BA = self.build_generator()
+        self.ge_AB = self.build_generator(name='A')
+        self.ge_BA = self.build_generator(name='B')
 
         self.di_A.trainable = False
         self.di_B.trainable = False
@@ -262,6 +271,7 @@ class CycleGAN(BaseModel):
             outputs=[real_A, real_B,
                     reconst_A, reconst_B,
                     imgs_A_id, imgs_B_id],
+            name='Whole_Network',
             )
         self.combined.compile(
             loss=['mse', 'mse', 'mae', 'mae', 'mae', 'mae'],
@@ -280,7 +290,7 @@ class CycleGAN(BaseModel):
         self.di_B.trainable = True
 
     def fit_generator(self, imgs_A, imgs_B, real):
-        return self.combined.train_on_batch(
+        return self.combined.fit(
             [imgs_A, imgs_B],
             [real, real,
              imgs_A, imgs_B,
@@ -297,15 +307,14 @@ class CycleGAN(BaseModel):
         fake_A_rnd = random.sample(self.buf_A, min(len(self.buf_A), len(imgs_A)))
         fake_B_rnd = random.sample(self.buf_B, min(len(self.buf_B), len(imgs_B)))
 
-        di_A_lss_real = self.di_A.train_on_batch(imgs_A, real)
-        di_A_lss_fake = self.di_A.train_on_batch(fake_A_rnd, fake)
-
-        di_B_lss_real = self.di_B.train_on_batch(imgs_B, real)
-        di_B_lss_fake = self.di_B.train_on_batch(fake_B_rnd, fake)
+        di_A_lss_real = self.di_A.fit(imgs_A, real)
+        di_A_lss_fake = self.di_A.fit(fake_A_rnd, fake)
+        di_B_lss_real = self.di_B.fit(imgs_B, real)
+        di_B_lss_fake = self.di_B.fit(fake_B_rnd, fake)
 
         return di_A_lss_real, di_A_lss_fake, di_B_lss_real, di_B_lss_fake
 
-    def fit(self, batch_size, max_epochs, show_every_n, folder, test_A, test_B):
+    def fit(self, batch_size, max_epochs, show_every_n, test_A, test_B):
         real = np.ones((batch_size, ) + self.disc_patch)
         fake = np.zeros((batch_size, ) + self.disc_patch)
 
@@ -315,43 +324,16 @@ class CycleGAN(BaseModel):
                     self.fit_discriminator(imgs_A, imgs_B, real, fake)
                 ge = self.fit_generator(imgs_A, imgs_B, real)
 
-                print('Epoch %d / %d /// Batch %d / %d' %
-                      (epoch, max_epochs, batch_i, self.loader.n_batches)
-                      )
-                print('D-A ||(ACC) Real %.4f | Fake %.4f (LOSS) | Real %.4f | Fake %.4f | Total %.4f' % 
-                      (di_A_lss_real[1],
-                       di_A_lss_fake[1],
-                       di_A_lss_real[0],
-                       di_A_lss_fake[0],
-                       0.5 * (di_A_lss_real[0]+ di_A_lss_fake[0])
-                       )
-                      )
-                print('D-B ||(ACC) Real %.4f | Fake %.4f (LOSS) | Real %.4f | Fake %.4f | Total %.4f' % 
-                      (di_B_lss_real[1],
-                       di_B_lss_fake[1],
-                       di_B_lss_real[0],
-                       di_B_lss_fake[0],
-                       0.5 * (di_B_lss_real[0]+ di_B_lss_fake[0])
-                       )
-                      )
-                print('G-A ||(LOSS) %.4f | Adv %.4f | Rec %.4f | ID %.4f' %
-                      (ge[0],
-                       np.sum(ge[1:3]),
-                       np.sum(ge[3:5]),
-                       np.sum(ge[5:7]),
-                      )
-                     )
                 self.di_lss.append([di_A_lss_real, di_A_lss_fake, di_B_lss_real, di_B_lss_fake])
                 self.di_lss.append(ge)
             
             if epoch % show_every_n == 0 or epoch + 1 == max_epochs:
-                self.show_img(batch_i, folder, test_A, test_B)
+                self.show_img(batch_i, test_A, test_B)
                 self.save_weights(file_name='weights_{}.h5'.format(epoch))
 
-    def show_img(self, batch_i, folder, test_A, test_B):
+    def show_img(self, batch_i, test_A, test_B):
         r, c = 2, 4
         for p in range(2):
-
             if p == 1:
                 imgs_A = self.loader.load_data(domain="A", batch_size=1, is_testing=True)
                 imgs_B = self.loader.load_data(domain="B", batch_size=1, is_testing=True)
@@ -378,11 +360,11 @@ class CycleGAN(BaseModel):
             cnt = 0
             for i in range(r):
                 for j in range(c):
-                    axs[i,j].imshow(gen_imgs[cnt])
+                    axs[i, j].imshow(gen_imgs[cnt])
                     axs[i, j].set_title(titles[j])
-                    axs[i,j].axis('off')
+                    axs[i, j].axis('off')
                     cnt += 1
-            fig.savefig(os.path.join(folder ,"images/%d_%d_%d.png" % (p, self.epoch, batch_i)))
+            fig.savefig(os.path.join(self.loader.folder ,"images/%d_%d_%d.png" % (p, self.epoch, batch_i)))
             plt.close()
 
     def plot_loss(self):
