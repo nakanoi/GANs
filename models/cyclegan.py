@@ -1,14 +1,15 @@
 from collections import deque
 import random
+import datetime
 import matplotlib.pyplot as plt
 
 from tensorflow import pad
+from tensorflow.keras.models import Model
 from tensorflow.keras.layers import (Conv2D, Input, Layer, InputSpec,
                                      add, Conv2DTranspose, 
                                      )
 from tensorflow_addons.layers import InstanceNormalization
 from tensorflow.keras.initializers import RandomNormal
-from tensorflow.keras.models import Model
 
 from models.basemodel import BaseModel, DataLoader, np, os
 
@@ -54,6 +55,8 @@ class CycleGAN(BaseModel):
                  k = 1,
                  loader = None,
                  data_name = '',
+                 ID = 0,
+                 color = 'RGB',
                  ):
         super().__init__()
         self.input_dim = input_dim
@@ -77,7 +80,7 @@ class CycleGAN(BaseModel):
         self.data_name = data_name
 
         if loader is None:
-            self.loader = DataLoader(self.data_name, tuple(input_dim[:2]))
+            self.loader = DataLoader(self.data_name, ID, tuple(input_dim[:2]), color=color)
         else:
             self.loader = loader
 
@@ -101,7 +104,7 @@ class CycleGAN(BaseModel):
                 filters=filters,
                 kernel_size=7,
                 strides=1,
-                padding='same',
+                padding='valid',
                 kernel_initializer=self.weight_init,
                 )(layer)
             if final:
@@ -235,6 +238,7 @@ class CycleGAN(BaseModel):
     def compile_model(self):
         self.di_A = self.build_discriminator(name='A')
         self.di_B = self.build_discriminator(name='B')
+
         self.di_A.compile(
             loss='mse',
             optimizer=self.optimizer(self.lr),
@@ -286,18 +290,25 @@ class CycleGAN(BaseModel):
             optimizer=self.optimizer(self.lr),
             )
 
+        self.models.setdefault('Discriminator_A', self.di_A)
+        self.models.setdefault('Discriminator_B', self.di_B)
+        self.models.setdefault('Generator_A2B', self.ge_AB)
+        self.models.setdefault('Generator_B2A', self.ge_BA)
+        self.models.setdefault('Combined', self.combined)
+
+        print(self.models)
         self.di_A.trainable = True
         self.di_B.trainable = True
 
-    def fit_generator(self, imgs_A, imgs_B, real):
-        return self.combined.fit(
+    def train_generator(self, imgs_A, imgs_B, real):
+        return self.combined.train_on_batch(
             [imgs_A, imgs_B],
             [real, real,
              imgs_A, imgs_B,
              imgs_A, imgs_B],
             )
 
-    def fit_discriminator(self, imgs_A, imgs_B, real, fake):
+    def train_discriminator(self, imgs_A, imgs_B, real, fake):
         fake_A = self.ge_BA.predict(imgs_B)
         fake_B = self.ge_AB.predict(imgs_A)
 
@@ -307,26 +318,49 @@ class CycleGAN(BaseModel):
         fake_A_rnd = random.sample(self.buf_A, min(len(self.buf_A), len(imgs_A)))
         fake_B_rnd = random.sample(self.buf_B, min(len(self.buf_B), len(imgs_B)))
 
-        di_A_lss_real = self.di_A.fit(imgs_A, real)
-        di_A_lss_fake = self.di_A.fit(fake_A_rnd, fake)
-        di_B_lss_real = self.di_B.fit(imgs_B, real)
-        di_B_lss_fake = self.di_B.fit(fake_B_rnd, fake)
+        di_A_lss_real = self.di_A.train_on_batch(imgs_A, real)
+        di_A_lss_fake = self.di_A.train_on_batch(fake_A_rnd, fake)
+        di_A_lss = np.add(di_A_lss_real, di_A_lss_fake) / 2
 
-        return di_A_lss_real, di_A_lss_fake, di_B_lss_real, di_B_lss_fake
+        di_B_lss_real = self.di_B.train_on_batch(imgs_B, real)
+        di_B_lss_fake = self.di_B.train_on_batch(fake_B_rnd, fake)
+        di_B_lss = np.add(di_B_lss_real, di_B_lss_fake) / 2
 
-    def fit(self, batch_size, max_epochs, show_every_n, test_A, test_B):
+        tot_lss = np.add(di_A_lss, di_B_lss) / 2
+
+        return (di_A_lss_real, di_A_lss_fake, di_A_lss,
+                di_B_lss_real, di_B_lss_fake, di_B_lss,
+                tot_lss)
+
+    def train(self, batch_size, max_epochs, show_every_n, test_A, test_B):
         real = np.ones((batch_size, ) + self.disc_patch)
         fake = np.zeros((batch_size, ) + self.disc_patch)
+        s = datetime.datetime.now()
 
         for epoch in range(self.epochs, max_epochs):
             for batch_i, (imgs_A, imgs_B) in enumerate(self.loader.load_batch()):
-                di_A_lss_real, di_A_lss_fake, di_B_lss_real, di_B_lss_fake = \
-                    self.fit_discriminator(imgs_A, imgs_B, real, fake)
-                ge = self.fit_generator(imgs_A, imgs_B, real)
+                di_lss = self.train_discriminator(imgs_A, imgs_B, real, fake)
+                ge_lss = self.train_generator(imgs_A, imgs_B, real)
 
-                self.di_lss.append([di_A_lss_real, di_A_lss_fake, di_B_lss_real, di_B_lss_fake])
-                self.di_lss.append(ge)
-            
+                elapsed_time = datetime.datetime.now() - s
+
+                print ("[Epoch %d / %d] [Batch %d / %d] [D loss: %f, acc: %3d%%] [G loss: %05f, adv: %05f, recon: %05f, id: %05f] time: %s " \
+                       % (epoch,
+                          max_epochs,
+                          batch_i,
+                          self.loader.n_batches,
+                          di_lss[6][0],
+                          100 * di_lss[6][1],
+                          ge_lss[0],
+                          np.sum(ge_lss[1:3]),
+                          np.sum(ge_lss[3:5]),
+                          np.sum(ge_lss[5:7]),
+                          elapsed_time,
+                          )
+                )
+                self.di_lss.append(di_lss)
+                self.di_lss.append(ge_lss)
+
             if epoch % show_every_n == 0 or epoch + 1 == max_epochs:
                 self.show_img(batch_i, test_A, test_B)
                 self.save_weights(file_name='weights_{}.h5'.format(epoch))
@@ -338,8 +372,8 @@ class CycleGAN(BaseModel):
                 imgs_A = self.loader.load_data(domain="A", batch_size=1, is_testing=True)
                 imgs_B = self.loader.load_data(domain="B", batch_size=1, is_testing=True)
             else:
-                imgs_A = self.loader.load_img('data/%s/testA/%s' % (self.loader.dataset_name, test_A))
-                imgs_B = self.loader.load_img('data/%s/testB/%s' % (self.loader.dataset_name, test_B))
+                imgs_A = self.loader.load_img('datasets/%s/testA/%s' % (self.loader.dataset, test_A))
+                imgs_B = self.loader.load_img('datasets/%s/testB/%s' % (self.loader.dataset, test_B))
 
             fake_B = self.g_AB.predict(imgs_A)
             fake_A = self.g_BA.predict(imgs_B)
@@ -364,7 +398,7 @@ class CycleGAN(BaseModel):
                     axs[i, j].set_title(titles[j])
                     axs[i, j].axis('off')
                     cnt += 1
-            fig.savefig(os.path.join(self.loader.folder ,"images/%d_%d_%d.png" % (p, self.epoch, batch_i)))
+            fig.savefig(os.path.join(self.loader.folder ,"images/{}_{}_{}.png".format(p, self.epoch, batch_i)))
             plt.close()
 
     def plot_loss(self):
