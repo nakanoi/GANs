@@ -1,5 +1,7 @@
 sec4-1.py
 load_safari.py
-data
+test_*.py
+datasets
 runsample
-sample_gan.py
+saved
+weights
