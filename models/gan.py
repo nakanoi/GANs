@@ -31,7 +31,7 @@ class GAN(BaseModel):
                  weight_init = (0, 0.02),
                  start_epoch = 0,
                  k = 1,
-                 loader = mnist,
+                 loader = None,
                  data_name = '',
                  ):
         super().__init__()
@@ -145,18 +145,13 @@ class GAN(BaseModel):
         self.models.setdefault('Full Model', self.combined)
         self.trainable(self.discriminator, True)
 
-    def fit_generator(self, batch_size):
+    def train_generator(self, batch_size):
         real = np.ones((batch_size, 1))
         z = np.random.normal(0, 1, (batch_size, self.z_dim))
-        ge_hist = self.combined.fit(z,
-                                   real,
-                                   batch_size=batch_size,
-                                   epochs=1,
-                                   shuffle=True,
-                                   )
-        return ge_hist
 
-    def fit_discriminator(self, x_train, batch_size):
+        return self.combined.train_on_batch(z, real)
+
+    def train_discriminator(self, x_train, batch_size):
         real = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
 
@@ -165,42 +160,29 @@ class GAN(BaseModel):
         real_imgs = x_train[idcs]
         fake_imgs = self.generator.predict(z)
 
-        di_hist_real = self.discriminator.fit(real_imgs,
-                                              real,
-                                              batch_size=batch_size,
-                                              epochs=1,
-                                              shuffle=True,
-                                              )
-        di_hist_fake = self.discriminator.fit(fake_imgs,
-                                              fake,
-                                              batch_size=batch_size,
-                                              epochs=1,
-                                              shuffle=True,
-                                              )
-        return di_hist_real, di_hist_fake
+        di_real = self.discriminator.train_on_batch(real_imgs, real)
+        di_fake = self.discriminator.train_on_batch(fake_imgs, fake)
+        di_lss = (di_real[0] + di_fake[0]) / 2
+        di_acc = (di_real[1] + di_fake[1]) / 2
 
-    def fit(self, batch_size, max_epochs, show_every_n):
-        (x_train, _), (_, _) = self.loader.load_data()
+        return di_real, di_fake, di_lss, di_acc
+
+    def train(self, batch_size, max_epochs, show_every_n):
+        x_train, y_train = self.loader.load_np_data(self.data_name)
 
         for epoch in range(max_epochs):
             for j in range(self.k):
-                di_hist_real, di_hist_fake = self.fit_discriminator(x_train,
-                                                                    batch_size,
-                                                                    )
-                self.di_real_lss.append(di_hist_real.history['loss'][0])
-                self.di_fake_lss.append(di_hist_fake.history['loss'][0])
-                self.di_lss.append(0.5 * (di_hist_real.history['loss'][0] + 
-                                      di_hist_fake.history['loss'][0]))
+                di = self.train_discriminator(x_train, batch_size)
+                self.di_real_lss.append(di[0][0])
+                self.di_fake_lss.append(di[1][0])
+                self.di_lss.append(di[0])
 
-            ge_hist = self.fit_generator(batch_size)
-            self.ge_lss.append(ge_hist.history['loss'][0])
+            ge = self.train_generator(batch_size)
+            self.ge_lss.append(ge[0])
 
             if epoch % show_every_n == 0 or epoch == max_epochs - 1:
-                print('|D|Total %.4f, Real %.4f, Fake %.4f\n|G|%.4f' %
-                      (self.di_lss[-1],
-                       self.di_real_lss[-1],
-                       self.di_real_lss[-1],
-                       self.ge_lss[-1])
+                print('|D|Acc %.2f, Total %.4f, Real %.4f, Fake %.4f\n|G|%.4f' %
+                      (di[3] * 100, di[3], di[0][0], di[1][0], ge[0])
                       )
                 self.show_img(3, epoch, './imgs', 'sample{}.png'.format(epoch))
                 self.save_weights(file_name='weights_{}.h5'.format(epoch))
