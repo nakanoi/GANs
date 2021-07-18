@@ -89,12 +89,13 @@ class BaseModel:
 
 
 class DataLoader:
-    def __init__(self, dataset, shape=(256, 256)):
+    def __init__(self, dataset, ID, shape=(256, 256), color='RGB'):
         self.dataset = dataset
         self.shape = shape
+        self.color = color
 
-        section = 'gan'
-        self.folder = './saved/{}/'.format(section) + '_' + dataset
+        section = 'CycleGAN'
+        self.folder = './run/{}/{}_{}'.format(section, ID, dataset)
         os.makedirs(os.path.join(self.folder, 'graph'), exist_ok=True)
         os.makedirs(os.path.join(self.folder, 'images'), exist_ok=True)
         os.makedirs(os.path.join(self.folder, 'weights'), exist_ok=True)
@@ -119,8 +120,8 @@ class DataLoader:
             imgs_B = np.empty((batch_size, self.shape[0], self.shape[1], 3))
 
             for i, (img_A, img_B) in enumerate(zip(batch_A, batch_B)):
-                img_A = imageio.imread(img_A, pilmode='RGB').astype(np.uint8)
-                img_B = imageio.imread(img_B, pilmode='RGB').astype(np.uint8)
+                img_A = imageio.imread(img_A, pilmode=self.color).astype(np.uint8)
+                img_B = imageio.imread(img_B, pilmode=self.color).astype(np.uint8)
                 imgs_A[i] = np.array(img_A) / 127.5 - 1.0
                 imgs_B[i] = np.array(img_B) / 127.5 - 1.0
 
@@ -131,7 +132,7 @@ class DataLoader:
             yield imgs_A, imgs_B
 
     def load_img(self, path):
-        img = imageio.imread(path, pilmode='gray').astype(np.uint8)
+        img = imageio.imread(path, pilmode=self.color).astype(np.uint8)
         img = np.array(img) / 127.5 - 1.0
 
         return img[np.newaxis, :, :, :]
@@ -143,7 +144,7 @@ class DataLoader:
         imgs = np.array([0 for _ in range(batch_size)])
 
         for i, path in enumerate(batch_images):
-            img = imageio.imread(path, pilmode='RGB').astype(np.uint8)
+            img = imageio.imread(path, pilmode=self.color).astype(np.uint8)
 
             if is_testing:
                 imgs[i] = np.array(img) / 127.5 - 1.0
@@ -151,5 +152,43 @@ class DataLoader:
                 imgs[i] = np.array(img) / 127.5 - 1.0
                 imgs[i] = np.fliplr(imgs[i]) if np.random.random() > 0.5 else imgs[i]
 
-        return imgs
+        return np.array(imgs)
+
+    def load_np_data(self, data_type):
+        mypath = os.path.join("./datasets", data_type)
+        txt_name_list = []
+        for (dirpath, dirnames, filenames) in os.walk(mypath):
+            for f in filenames:
+                if f != '.DS_Store':
+                    txt_name_list.append(f)
+                    break
+
+        slice_train = int(80000/len(txt_name_list))
+        i = 0
+        seed = np.random.randint(1, 10e6)
+        x_total, y_total = None, None
+
+        for txt_name in txt_name_list:
+            txt_path = os.path.join(mypath,txt_name)
+            x = np.load(txt_path)
+            x = (x.astype('float32') - 127.5) / 127.5
+            x = x.reshape(x.shape[0], 28, 28, 1)
+            y = [i] * len(x)  
+            np.random.seed(seed)
+            np.random.shuffle(x)
+            np.random.seed(seed)
+            np.random.shuffle(y)
+            x = x[:slice_train]
+            y = y[:slice_train]
+            if i != 0: 
+                x_total = np.concatenate((x, x_total), axis=0)
+                y_total = np.concatenate((y, y_total), axis=0)
+            else:
+                x_total = x
+                y_total = y
+            i += 1
+
+        return x_total, y_total
+
+
 
