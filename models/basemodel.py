@@ -1,6 +1,7 @@
 import os, pickle
 import numpy as np
-import matplotlib.pyplot as plt
+import imageio
+from glob import glob
 
 from tensorflow.keras.optimizers import (Adam, RMSprop, SGD, Adagrad,
                                          Adadelta)
@@ -15,23 +16,23 @@ class BaseModel:
     def optimizer(self, lr):
         opt = self.opt.lower()
         if opt == 'rmsprop':
-            optimizer = RMSprop(lr=lr)
+            optimizer = RMSprop(learning_rate=lr)
         elif opt == 'sgd':
-            optimizer = SGD(lr=lr)
+            optimizer = SGD(learning_rate=lr)
         elif opt == 'adagrad':
-            optimizer = Adagrad(lr=lr)
+            optimizer = Adagrad(learning_rate=lr)
         elif opt == 'adadelta':
-            optimizer = Adadelta(lr=lr)
+            optimizer = Adadelta(learning_rate=lr)
         elif opt == 'adam' and self.beta1:
-            optimizer = Adam(lr=lr, beta_1=self.beta1)
+            optimizer = Adam(learning_rate=lr, beta_1=self.beta1)
         else:
-            optimizer = Adam(lr=lr)
+            optimizer = Adam(learning_rate=lr)
 
         return optimizer
 
     def activation(self, act, alpha=0.2):
         act = act.lower()
-        if act == 'leakrelu':
+        if act == 'leakyrelu':
             activation = LeakyReLU(alpha=alpha)
         elif act == 'relu':
             activation = ReLU()
@@ -65,7 +66,7 @@ class BaseModel:
         with open(file_name, 'wb') as f:
             pickle.dumps(*self.params, f)
 
-    def save_weights(self, folder='.', file_name='weights.ht'):
+    def save_weights(self, folder='.', file_name='weights.h5'):
         folder = os.path.join(folder, 'weights')
         os.makedirs(folder, exist_ok=True)
 
@@ -83,6 +84,111 @@ class BaseModel:
 
     def load_models(self, folder='.'):
         for name, model in self.models.imtes():
-            file_name = os.path.join(folder, 'models', name + '.png')
+            file_name = os.path.join(folder, 'models', name + '.h5')
             model.load_weights(file_name)
+
+
+class DataLoader:
+    def __init__(self, dataset, ID, shape=(256, 256), color='RGB'):
+        self.dataset = dataset
+        self.shape = shape
+        self.color = color
+
+        section = 'CycleGAN'
+        self.folder = './run/{}/{}_{}'.format(section, ID, dataset)
+        os.makedirs(os.path.join(self.folder, 'graph'), exist_ok=True)
+        os.makedirs(os.path.join(self.folder, 'images'), exist_ok=True)
+        os.makedirs(os.path.join(self.folder, 'weights'), exist_ok=True)
+
+    def load_batch(self, batch_size=1, is_testing=False):
+        data_type = 'train' if not is_testing else 'val'
+        path_A = glob('./datasets/{}/{}A/*'.format(self.dataset, data_type))
+        path_B = glob('./datasets/{}/{}B/*'.format(self.dataset, data_type))
+        self.n_batches = min(len(path_A), len(path_B)) // batch_size
+
+        path_A = np.random.choice(path_A,
+                                  self.n_batches * batch_size,
+                                  replace=False)
+        path_B = np.random.choice(path_B, 
+                                  self.n_batches * batch_size,
+                                  replace=False)
+
+        for i in range(self.n_batches - 1):
+            batch_A = path_A[i * batch_size:(i + 1) * batch_size]
+            batch_B = path_B[i * batch_size:(i + 1) * batch_size]
+            imgs_A = np.empty((batch_size, self.shape[0], self.shape[1], 3))
+            imgs_B = np.empty((batch_size, self.shape[0], self.shape[1], 3))
+
+            for i, (img_A, img_B) in enumerate(zip(batch_A, batch_B)):
+                img_A = imageio.imread(img_A, pilmode=self.color).astype(np.uint8)
+                img_B = imageio.imread(img_B, pilmode=self.color).astype(np.uint8)
+                imgs_A[i] = np.array(img_A) / 127.5 - 1.0
+                imgs_B[i] = np.array(img_B) / 127.5 - 1.0
+
+                if not is_testing and np.random.random() > 0.5:
+                    imgs_A[i] = np.fliplr(imgs_A[i])
+                    imgs_B[i] = np.fliplr(imgs_B[i])
+
+            yield imgs_A, imgs_B
+
+    def load_img(self, path):
+        img = imageio.imread(path, pilmode=self.color).astype(np.uint8)
+        img = np.array(img) / 127.5 - 1.0
+
+        return img[np.newaxis, :, :, :]
+
+    def load_data(self, domain, batch_size=1, is_testing=False):
+        data_type = 'train{}'.format(domain) if not is_testing else 'test{}'.format(domain)
+        path = glob('./datasets/{}/{}/*'.foramt(self.dataset, data_type))
+        batch_images = np.random.choice(path, size=batch_size)
+        imgs = np.array([0 for _ in range(batch_size)])
+
+        for i, path in enumerate(batch_images):
+            img = imageio.imread(path, pilmode=self.color).astype(np.uint8)
+
+            if is_testing:
+                imgs[i] = np.array(img) / 127.5 - 1.0
+            else:
+                imgs[i] = np.array(img) / 127.5 - 1.0
+                imgs[i] = np.fliplr(imgs[i]) if np.random.random() > 0.5 else imgs[i]
+
+        return np.array(imgs)
+
+    def load_np_data(self, data_type):
+        mypath = os.path.join("./datasets", data_type)
+        txt_name_list = []
+        for (dirpath, dirnames, filenames) in os.walk(mypath):
+            for f in filenames:
+                if f != '.DS_Store':
+                    txt_name_list.append(f)
+                    break
+
+        slice_train = int(80000/len(txt_name_list))
+        i = 0
+        seed = np.random.randint(1, 10e6)
+        x_total, y_total = None, None
+
+        for txt_name in txt_name_list:
+            txt_path = os.path.join(mypath,txt_name)
+            x = np.load(txt_path)
+            x = (x.astype('float32') - 127.5) / 127.5
+            x = x.reshape(x.shape[0], 28, 28, 1)
+            y = [i] * len(x)  
+            np.random.seed(seed)
+            np.random.shuffle(x)
+            np.random.seed(seed)
+            np.random.shuffle(y)
+            x = x[:slice_train]
+            y = y[:slice_train]
+            if i != 0: 
+                x_total = np.concatenate((x, x_total), axis=0)
+                y_total = np.concatenate((y, y_total), axis=0)
+            else:
+                x_total = x
+                y_total = y
+            i += 1
+
+        return x_total, y_total
+
+
 
