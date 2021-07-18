@@ -80,7 +80,10 @@ class CycleGAN(BaseModel):
         self.data_name = data_name
 
         if loader is None:
-            self.loader = DataLoader(self.data_name, ID, tuple(input_dim[:2]), color=color)
+            self.loader = DataLoader(self.data_name, ID,
+                                     tuple(input_dim[:2]),
+                                     color=color,
+                                     section='CycleGAN')
         else:
             self.loader = loader
 
@@ -100,13 +103,14 @@ class CycleGAN(BaseModel):
 
     def build_generator(self, name=''):
         def conv7s1(layer, filters, final):
+            y = ReflectionPadding2d(padding=(3, 3))(layer)
             y = Conv2D(
                 filters=filters,
                 kernel_size=7,
                 strides=1,
                 padding='valid',
                 kernel_initializer=self.weight_init,
-                )(layer)
+                )(y)
             if final:
                 y = self.activation('tanh')(y)
             else:

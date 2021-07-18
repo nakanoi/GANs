@@ -67,6 +67,7 @@ class DCGAN(BaseModel):
         if weight_init is None:
             weight_init = (0, 1)
         self.weight_init = RandomNormal(mean=weight_init[0], stddev=weight_init[1])
+        self.color = color
 
         self.epochs = start_epoch
         self.k = k
@@ -205,10 +206,9 @@ class DCGAN(BaseModel):
 
         di_real = self.discriminator.train_on_batch(real_imgs, real)
         di_fake = self.discriminator.train_on_batch(fake_imgs, fake)
-        di_lss = (di_real[0] + di_fake[0]) / 2
-        di_acc = (di_real[1] + di_fake[1]) / 2
+        di_tot = (di_real + di_fake) / 2
 
-        return di_real, di_fake, di_lss, di_acc
+        return di_real, di_fake, di_tot
 
     def train(self, batch_size, max_epochs, show_every_n):
         x_train, _ = self.loader.load_np_data(self.data_name)
@@ -216,13 +216,13 @@ class DCGAN(BaseModel):
         for epoch in range(max_epochs):
             di = self.train_discriminator(x_train, batch_size)
             ge = self.train_generator(batch_size)
-            print ("%d [D loss: (%.3f)(R %.3f, F %.3f)] [D acc: (%.3f)(%.3f, %.3f)]\n[G loss: %.3f] [G acc: %.3f]"
-                   % (epoch, di[2], di[0][0], di[1][0],
-                      di[3], di[0][1], di[1][1], ge[0], ge[1]))
+            print ('%d [D loss: (%.3f)(R %.3f, F %.3f)] [D acc: (%.3f)(%.3f, %.3f)]\n[G loss: %.3f] [G acc: %.3f]'
+                   % (epoch, di[2][0], di[0][0], di[1][0],
+                      di[2][1], di[0][1], di[1][1], ge[0], ge[1]))
 
             self.di_real_lss.append(di[0][0])
             self.di_fake_lss.append(di[1][0])
-            self.di_lss.append(di[2])
+            self.di_lss.append(di[2][0])
             self.ge_lss.append(ge)
 
             if epoch % show_every_n == 0 or epoch == max_epochs - 1:

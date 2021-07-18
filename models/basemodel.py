@@ -1,5 +1,6 @@
 import os, pickle
 import numpy as np
+import matplotlib.pyplot as plt
 import imageio
 from glob import glob
 
@@ -7,6 +8,7 @@ from tensorflow.keras.optimizers import (Adam, RMSprop, SGD, Adagrad,
                                          Adadelta)
 from tensorflow.keras.layers import LeakyReLU, ReLU, Activation
 from tensorflow.keras.utils import plot_model
+from tensorflow.keras.datasets import mnist
 
 
 class BaseModel:
@@ -51,6 +53,26 @@ class BaseModel:
             print('############### %s ###############' % (name))
             model.summary()
 
+    def show_img(self, generator, epoch, z_dim, folder, color='RGB', show=False):
+        r, c = 5, 5
+        noise = np.random.normal(0, 1, (r * c, z_dim))
+        gen_imgs = generator.predict(noise)
+        gen_imgs = 0.5 * (gen_imgs + 1)
+        gen_imgs = np.clip(gen_imgs, 0, 1)
+
+        fig, axs = plt.subplots(r, c, figsize=(15, 15))
+        cnt = 0
+
+        for i in range(r):
+            for j in range(c):
+                axs[i, j].imshow(np.squeeze(gen_imgs[cnt, :, :, :]), cmap=color)
+                axs[i, j].axis('off')
+                cnt += 1
+        if show:
+            plt.show()
+        fig.savefig(os.path.join(folder, 'images', 'sample_{}.png'.format(epoch)))
+        plt.close()
+
     def plot_models(self, folder='.'):
         folder = os.path.join(folder, 'plots')
         os.makedirs(folder, exist_ok=True)
@@ -89,12 +111,11 @@ class BaseModel:
 
 
 class DataLoader:
-    def __init__(self, dataset, ID, shape=(256, 256), color='RGB'):
+    def __init__(self, dataset, ID, shape=(256, 256), color='RGB', section='GAN'):
         self.dataset = dataset
         self.shape = shape
         self.color = color
 
-        section = 'CycleGAN'
         self.folder = './run/{}/{}_{}'.format(section, ID, dataset)
         os.makedirs(os.path.join(self.folder, 'graph'), exist_ok=True)
         os.makedirs(os.path.join(self.folder, 'images'), exist_ok=True)
@@ -159,13 +180,11 @@ class DataLoader:
         txt_name_list = []
         for (dirpath, dirnames, filenames) in os.walk(mypath):
             for f in filenames:
-                if f != '.DS_Store':
-                    txt_name_list.append(f)
-                    break
+                txt_name_list.append(f)
+                break
 
         slice_train = int(80000/len(txt_name_list))
         i = 0
-        seed = np.random.randint(1, 10e6)
         x_total, y_total = None, None
 
         for txt_name in txt_name_list:
@@ -174,21 +193,28 @@ class DataLoader:
             x = (x.astype('float32') - 127.5) / 127.5
             x = x.reshape(x.shape[0], 28, 28, 1)
             y = [i] * len(x)  
-            np.random.seed(seed)
             np.random.shuffle(x)
-            np.random.seed(seed)
             np.random.shuffle(y)
             x = x[:slice_train]
             y = y[:slice_train]
+
             if i != 0: 
                 x_total = np.concatenate((x, x_total), axis=0)
                 y_total = np.concatenate((y, y_total), axis=0)
             else:
                 x_total = x
                 y_total = y
+
             i += 1
 
         return x_total, y_total
 
+    def load_mnist(self):
+        (x_train, y_train), (x_test, y_test) = mnist.load_data()
+        x_train = (x_train.astype('float32') - 127.5) / 127.5
+        x_train = x_train.reshape(x_train.shape + (1, ))
+        x_test = (x_test.astype('float32') - 127.5) / 127.5
+        x_test = x_test.reshape(x_test.shape + (1, ))
 
+        return (x_train, y_train), (x_test, y_test)
 
