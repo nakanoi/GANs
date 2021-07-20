@@ -1,7 +1,6 @@
 from collections import deque
 import random
 import datetime
-import matplotlib.pyplot as plt
 
 from tensorflow import pad
 from tensorflow.keras.models import Model
@@ -11,7 +10,7 @@ from tensorflow.keras.layers import (Conv2D, Input, Layer, InputSpec,
 from tensorflow_addons.layers import InstanceNormalization
 from tensorflow.keras.initializers import RandomNormal
 
-from models.basemodel import BaseModel, DataLoader, np, os
+from models.basemodel import BaseModel, DataLoader, np, os, plt
 
 
 class ReflectionPadding2d(Layer):
@@ -99,6 +98,9 @@ class CycleGAN(BaseModel):
         self.buf_A = deque(maxlen=self.buf_maxlen)
         self.buf_B = deque(maxlen=self.buf_maxlen)
 
+        self.ge_lss_ad = []
+        self.ge_lss_re = []
+        self.ge_lss_id = []
         self.compile_model()
 
     def build_generator(self, name=''):
@@ -336,85 +338,181 @@ class CycleGAN(BaseModel):
                 di_B_lss_real, di_B_lss_fake, di_B_lss,
                 tot_lss)
 
-    def train(self, batch_size, max_epochs, show_every_n, test_A, test_B):
-        real = np.ones((batch_size, ) + self.disc_patch)
-        fake = np.zeros((batch_size, ) + self.disc_patch)
+    def train(self,
+              batch_size,
+              max_epochs,
+              show_every_n,
+              train_data=None,
+              test_data=None,
+              train_batch=True):
         s = datetime.datetime.now()
+        if train_batch:
+            real = np.ones((batch_size, ) + self.disc_patch)
+            fake = np.zeros((batch_size, ) + self.disc_patch)
+            test_A, teset_B = test_data
 
-        for epoch in range(self.epochs, max_epochs):
-            for batch_i, (imgs_A, imgs_B) in enumerate(self.loader.load_batch()):
+            for epoch in range(self.epochs, max_epochs):
+                for batch_i, (imgs_A, imgs_B) in enumerate(self.loader.load_batch()):
+                    di_lss = self.train_discriminator(imgs_A, imgs_B, real, fake)
+                    ge_lss = self.train_generator(imgs_A, imgs_B, real)
+
+                    elapsed_time = datetime.datetime.now() - s
+                    print ("[Epoch %d / %d] [Batch %d / %d] [D loss: %f, acc: %3d%%] [G loss: %05f, adv: %05f, recon: %05f, id: %05f] time: %s " \
+                           % (epoch, max_epochs,
+                              batch_i, self.loader.n_batches,
+                              di_lss[6][0], 100 * di_lss[6][1],
+                              ge_lss[0],
+                              np.sum(ge_lss[1:3]), np.sum(ge_lss[3:5]), np.sum(ge_lss[5:7]),
+                              elapsed_time,
+                              ))
+
+                    self.di_real_lss.append((di_lss[0][0] + di_lss[3][0]) / 2)
+                    self.di_fake_lss.append((di_lss[1][0] + di_lss[4][0]) / 2)
+                    self.di_lss.append(di_lss[6][0])
+                    self.di_acc.append(100 * di_lss[6][1])
+                    self.ge_lss_ad.append(np.sum(ge_lss[1:3]))
+                    self.ge_lss_re.append(np.sum(ge_lss[1:3]))
+                    self.ge_lss_id.append(np.sum(ge_lss[1:3]))
+
+                if epoch % show_every_n == 0:
+                    self.show_img(batch_i, test_A, teset_B)
+                    self.save_weights(file_name='weights_{}.h5'.format(epoch))
+                    self.save_models(epoch=epoch)
+
+                self.epochs += 1
+
+            self.show_img(batch_i, test_A, teset_B)
+            self.save_models()
+            self.plot_loss()
+
+        else:
+            imgs_A, imgs_B = train_data
+            test_A, test_B = test_data
+            real = np.ones((len(imgs_A), ) + self.disc_patch)
+            fake = np.zeros((len(imgs_A), ) + self.disc_patch)
+
+            for epoch in range(self.epochs, max_epochs):
                 di_lss = self.train_discriminator(imgs_A, imgs_B, real, fake)
                 ge_lss = self.train_generator(imgs_A, imgs_B, real)
 
                 elapsed_time = datetime.datetime.now() - s
+                print ("[Epoch %d / %d] [Batch %d / %d] [D loss: %f, acc: %3d%%] [G loss: %05f, adv: %05f, recon: %05f, id: %05f] time: %s " %
+                       (epoch, max_epochs,
+                        batch_i, self.loader.n_batches,
+                        di_lss[6][0], 100 * di_lss[6][1],
+                        ge_lss[0],
+                        np.sum(ge_lss[1:3]), np.sum(ge_lss[3:5]), np.sum(ge_lss[5:7]),
+                        elapsed_time,
+                        ))
 
-                print ("[Epoch %d / %d] [Batch %d / %d] [D loss: %f, acc: %3d%%] [G loss: %05f, adv: %05f, recon: %05f, id: %05f] time: %s " \
-                       % (epoch,
-                          max_epochs,
-                          batch_i,
-                          self.loader.n_batches,
-                          di_lss[6][0],
-                          100 * di_lss[6][1],
-                          ge_lss[0],
-                          np.sum(ge_lss[1:3]),
-                          np.sum(ge_lss[3:5]),
-                          np.sum(ge_lss[5:7]),
-                          elapsed_time,
-                          )
-                )
-                self.di_lss.append(di_lss)
-                self.di_lss.append(ge_lss)
+                self.di_real_lss.append((di_lss[0][0] + di_lss[3][0]) / 2)
+                self.di_fake_lss.append((di_lss[1][0] + di_lss[4][0]) / 2)
+                self.di_lss.append(di_lss[6][0])
+                self.di_acc.append(100 * di_lss[6][1])
+                self.ge_lss_ad.append(np.sum(ge_lss[1:3]))
+                self.ge_lss_re.append(np.sum(ge_lss[1:3]))
+                self.ge_lss_id.append(np.sum(ge_lss[1:3]))
 
-            if epoch % show_every_n == 0 or epoch + 1 == max_epochs:
-                self.show_img(batch_i, test_A, test_B)
-                self.save_weights(file_name='weights_{}.h5'.format(epoch))
+                if epoch % show_every_n == 0:
+                    self.show_img(batch_i, test_A, teset_B)
+                    self.save_weights(file_name='weights_{}.h5'.format(epoch))
+                    self.save_models(epoch=epoch)
+
+                self.epochs += 1
+
+            self.show_img(batch_i, test_A, teset_B)
+            self.save_models()
+            self.plot_loss()
 
     def show_img(self, batch_i, test_A, test_B):
         r, c = 2, 4
         for p in range(2):
             if p == 1:
-                imgs_A = self.loader.load_data(domain="A", batch_size=1, is_testing=True)
-                imgs_B = self.loader.load_data(domain="B", batch_size=1, is_testing=True)
+                imgs_A = self.loader.load_data(domain='A', batch_size=1, is_testing=True)
+                imgs_B = self.loader.load_data(domain='B', batch_size=1, is_testing=True)
             else:
-                imgs_A = self.loader.load_img('datasets/%s/testA/%s' % (self.loader.dataset, test_A))
-                imgs_B = self.loader.load_img('datasets/%s/testB/%s' % (self.loader.dataset, test_B))
+                imgs_A = self.loader.load_img('datasets/%s/testA/%s' % (self.data_name, test_A))
+                imgs_B = self.loader.load_img('datasets/%s/testB/%s' % (self.data_name, test_B))
 
             fake_B = self.g_AB.predict(imgs_A)
             fake_A = self.g_BA.predict(imgs_B)
-
             reconstr_A = self.g_BA.predict(fake_B)
             reconstr_B = self.g_AB.predict(fake_A)
-
             id_A = self.g_BA.predict(imgs_A)
             id_B = self.g_AB.predict(imgs_B)
 
             gen_imgs = np.concatenate([imgs_A, fake_B, reconstr_A, id_A, imgs_B, fake_A, reconstr_B, id_B])
-
             gen_imgs = 0.5 * gen_imgs + 0.5
             gen_imgs = np.clip(gen_imgs, 0, 1)
 
             titles = ['Original', 'Translated', 'Reconstructed', 'ID']
-            fig, axs = plt.subplots(r, c, figsize=(25,12.5))
+            fig, axs = plt.subplots(r, c, figsize=(25, 12.5))
             cnt = 0
+
             for i in range(r):
                 for j in range(c):
                     axs[i, j].imshow(gen_imgs[cnt])
                     axs[i, j].set_title(titles[j])
                     axs[i, j].axis('off')
                     cnt += 1
-            fig.savefig(os.path.join(self.loader.folder ,"images/{}_{}_{}.png".format(p, self.epoch, batch_i)))
+
+            fig.savefig(os.path.join(self.loader.folder ,'images/{}_sample_{}_{}.png'.format(p, self.epoch, batch_i)))
+            plt.cla()
+            plt.clf()
             plt.close()
 
     def plot_loss(self):
-        fig = plt.figure(figsize=(200, 50))
-        ax1 = fig.add_subplot(111)
-        ax1.plot(len(self.di_lss), self.di_real_lss)
-        ax2 = fig.add_subplot(121)
+        fig = plt.figure(figsize=(150, 150))
+
+        ax1 = fig.add_subplot(331)
+        ax1.set_xlim([0, len(self.di_real_lss)])
+        ax1.set_title('Discriminator Real Loss')
+        ax1.set_xlabel('Epochs')
+        ax1.set_ylabel('Loss')
+        ax1.plot(len(self.di_real_lss), self.di_real_lss)
+
+        ax2 = fig.add_subplot(332)
+        ax2.set_xlim([0, len(self.di_fake_lss)])
+        ax2.set_title('Discriminator Fake Loss')
+        ax2.set_xlabel('Epochs')
+        ax2.set_ylabel('Loss')
         ax2.plot(len(self.di_fake_lss), self.di_fake_lss)
-        ax3 = fig.add_subplot(131)
+
+        ax3 = fig.add_subplot(333)
+        ax3.set_xlim([0, len(self.di_lss)])
+        ax3.set_title('Discriminator Loss')
+        ax3.set_xlabel('Epochs')
+        ax3.set_ylabel('Loss')
         ax3.plot(len(self.di_lss), self.di_lss)
-        ax4 = fig.add_subplot(141)
-        ax4.plot(len(self.ge_lss), self.ge_lss)
+
+        ax4 = fig.add_subplot(334)
+        ax4.set_xlim([0, len(self.ge_lss_ad)])
+        ax4.set_title('Generator Adv Loss')
+        ax4.set_xlabel('Epochs')
+        ax4.set_ylabel('Loss')
+        ax4.plot(len(self.ge_lss_ad), self.ge_lss_ad)
+
+        ax5 = fig.add_subplot(335)
+        ax5.set_xlim([0, len(self.ge_lss_re)])
+        ax5.set_title('Generator Rec Loss')
+        ax5.set_xlabel('Epochs')
+        ax5.set_ylabel('Loss')
+        ax5.plot(len(self.ge_lss_re), self.ge_lss_re)
+
+        ax6 = fig.add_subplot(336)
+        ax6.set_xlim([0, len(self.ge_lss_id)])
+        ax6.set_title('Generator ID Loss')
+        ax6.set_xlabel('Epochs')
+        ax6.set_ylabel('Loss')
+        ax6.plot(len(self.ge_lss_id), self.ge_lss_id)
+
+        ax7 = fig.add_subplot(335)
+        ax7.set_xlim([0, len(self.di_acc)])
+        ax7.set_ylim([0, 100])
+        ax7.set_title('Discriminator Accuracy')
+        ax7.set_xlabel('Epochs')
+        ax7.set_ylabel('Accuracy')
+        ax7.plot(len(self.di_acc), self.di_acc)
 
         plt.show()
         plt.cla()

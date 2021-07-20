@@ -7,7 +7,7 @@ from tensorflow.keras.layers import (Input, Reshape, Dense, Conv2D,
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
 
-from models.basemodel import BaseModel, DataLoader, np, os
+from models.basemodel import BaseModel, DataLoader, np, os, datetime
 
 
 class DCGAN(BaseModel):
@@ -32,15 +32,14 @@ class DCGAN(BaseModel):
                  optimizer = 'adam',
                  beta1 = 0.5,
                  z_dim = 100,
-                 weight_init = (0, 0.02),
+                 weight_init = [0, 0.02],
                  start_epoch = 0,
                  k = 1,
+                 ID = 0,
                  loader = None,
                  data_name = '',
-                 ID = 1,
-                 color = 'gray'
+                 color = 'gray',
                  ):
-
         self.input_dim = input_dim
 
         self.di_conv_filters = di_conv_filters
@@ -65,8 +64,8 @@ class DCGAN(BaseModel):
         self.beta1 = beta1
         self.z_dim = z_dim
         if weight_init is None:
-            weight_init = (0, 1)
-        self.weight_init = RandomNormal(mean=weight_init[0], stddev=weight_init[1])
+            weight_init = [0, 1]
+        self.weight_init = RandomNormal(*weight_init)
         self.color = color
 
         self.epochs = start_epoch
@@ -74,16 +73,16 @@ class DCGAN(BaseModel):
         self.data_name = data_name
 
         if loader is None:
-            self.loader = DataLoader(self.data_name, ID, tuple(input_dim[:2]), color)
+            self.loader = DataLoader(self.data_name,
+                                     ID,
+                                     shape=tuple(input_dim[:2]),
+                                     color=color,
+                                     section='DCGAN')
         else:
             self.loader = loader
 
         self.di_len = len(di_conv_filters)
         self.ge_len = len(ge_conv_filters)
-        self.di_real_lss = []
-        self.di_fake_lss = []
-        self.di_lss = []
-        self.ge_lss = []
 
         super().__init__()
         self.build_generator()
@@ -206,60 +205,75 @@ class DCGAN(BaseModel):
 
         di_real = self.discriminator.train_on_batch(real_imgs, real)
         di_fake = self.discriminator.train_on_batch(fake_imgs, fake)
-        di_tot = (di_real + di_fake) / 2
+        di_lss = (di_real[0] + di_fake[0]) / 2
+        di_acc = (di_real[1] + di_fake[1]) / 2
 
-        return di_real, di_fake, di_tot
+        return di_real, di_fake, di_lss, di_acc
 
-    def train(self, batch_size, max_epochs, show_every_n):
-        x_train, _ = self.loader.load_np_data(self.data_name)
+    def train(self,
+              batch_size,
+              max_epochs,
+              show_every_n,
+              train_data=None,
+              train_batch=False):
+        s = datetime.now()
+        if train_batch:
+            for epoch in range(max_epochs):
+                for batch_i, (x_train, y_train) in enumerate(self.loader.load_batch()): 
+                    for j in range(self.k):
+                        di = self.train_discriminator(x_train, batch_size)
+                    ge = self.train_generator(batch_size)
 
-        for epoch in range(max_epochs):
-            di = self.train_discriminator(x_train, batch_size)
-            ge = self.train_generator(batch_size)
-            print ('%d [D loss: (%.3f)(R %.3f, F %.3f)] [D acc: (%.3f)(%.3f, %.3f)]\n[G loss: %.3f] [G acc: %.3f]'
-                   % (epoch, di[2][0], di[0][0], di[1][0],
-                      di[2][1], di[0][1], di[1][1], ge[0], ge[1]))
+                    self.di_real_lss.append(di[0][0])
+                    self.di_fake_lss.append(di[1][0])
+                    self.di_lss.append(di[2])
+                    self.di_acc.append(di[3] * 100)
+                    self.ge_lss.append(ge[0])
 
-            self.di_real_lss.append(di[0][0])
-            self.di_fake_lss.append(di[1][0])
-            self.di_lss.append(di[2][0])
-            self.ge_lss.append(ge)
+                if epoch % show_every_n == 0:
+                    elapsed_time = datetime.now() - s
+                    print ('[Epochs %d/%d] [Batch %d/%d] [D Acc %.2f Total %.4f Real %.4f Fake %.4f] [G %.4f] Time %s' %
+                           (epoch, max_epochs,
+                            batch_i, self.loader.n_batches,
+                            di[3] * 100, di[2], di[0][0], di[1][0], ge[0],
+                            elapsed_time))
 
-            if epoch % show_every_n == 0 or epoch == max_epochs - 1:
-                self.show_img(3, epoch, file_name='sample_{}.png'.format(epoch))
-        self.save_models(self.loader.folder)
+                    self.show_img(self.generator, self.z_dim, 'sample_{}.png'.format(epoch), color='gray')
+                    self.save_weights(file_name='weights_{}.h5'.format(epoch))
+                    self.save_models(epoch=epoch)
 
-    def show_img(self, img_num, epoch, file_name='sample.png', show=False):
-        r, c = 5, 5
-        noise = np.random.normal(0, 1, (r * c, self.z_dim))
-        gen_imgs = self.generator.predict(noise)
-        gen_imgs = 0.5 * (gen_imgs + 1)
-        gen_imgs = np.clip(gen_imgs, 0, 1)
+            self.show_img(self.generator, self.z_dim, 'sample_last.png', color='gray')
+            self.save_models()
+            self.plot_loss()
 
-        fig, axs = plt.subplots(r, c, figsize=(15,15))
-        cnt = 0
+        else:
+            if len(train_data) == 1:
+                x_train = train_data[0]
+            else:
+                x_train, t_train = train_data
 
-        for i in range(r):
-            for j in range(c):
-                axs[i,j].imshow(np.squeeze(gen_imgs[cnt, :, :, :]), cmap =self.color)
-                axs[i,j].axis('off')
-                cnt += 1
-        if show:
-            plt.show()
-        fig.savefig(os.path.join(self.loader.folder, 'images', file_name))
-        plt.close()
+            for epoch in range(max_epochs):
+                for j in range(self.k):
+                    di = self.train_discriminator(x_train, batch_size)
+                ge = self.train_generator(batch_size)
+    
+                self.di_real_lss.append(di[0][0])
+                self.di_fake_lss.append(di[1][0])
+                self.di_lss.append(di[2])
+                self.di_acc.append(di[3] * 100)
+                self.ge_lss.append(ge[0])
 
-    def plot_loss(self):
-        fig = plt.figure(figsize=(200, 50))
-        ax1 = fig.add_subplot(111)
-        ax1.plot(len(self.di_real_lss), self.di_real_lss)
-        ax2 = fig.add_subplot(121)
-        ax2.plot(len(self.di_fake_lss), self.di_fake_lss)
-        ax3 = fig.add_subplot(131)
-        ax3.plot(len(self.di_lss), self.di_lss)
-        ax4 = fig.add_subplot(141)
-        ax4.plot(len(self.ge_lss), self.ge_lss)
-        plt.show()
-        plt.cla()
-        plt.clf()
+                if epoch % show_every_n == 0:
+                    elapsed_time = datetime.now() - s
+                    print ('[Epochs %d/%d] [D Acc %.2f Total %.4f Real %.4f Fake %.4f] [G %.4f] Time %s' %
+                           (epoch, max_epochs,
+                            di[3] * 100, di[2], di[0][0], di[1][0], ge[0],
+                            elapsed_time))
 
+                    self.show_img(3, epoch, file_name='sample_{}.png'.format(epoch))
+                    self.save_weights(file_name='weights_{}.h5'.format(epoch))
+                    self.save_models(epoch=epoch)
+
+            self.show_img(self.generator, self.z_dim, 'sample_last.png', color='gray')
+            self.save_models()
+            self.plot_loss()
