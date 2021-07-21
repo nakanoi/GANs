@@ -16,7 +16,6 @@ from tensorflow.keras.datasets import mnist
 class BaseModel:
     def __init__(self):
         self.models = {}
-        self.loader = None
         self.di_real_lss = []
         self.di_fake_lss = []
         self.di_lss = []
@@ -115,7 +114,7 @@ class BaseModel:
 
     def load_models(self, epoch=''):
         folder = os.path.join(self.loader.folder, 'models')
-        for name, model in self.models.imtes():
+        for name, model in self.models.items():
             file_name = os.path.join(folder, 'models', '{}{}.h5'.format(name, epoch))
             model.load_weights(file_name)
 

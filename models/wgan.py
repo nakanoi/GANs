@@ -262,7 +262,7 @@ class WGAN(BaseModel):
 
             for epoch in range(max_epochs):
                 for j in range(self.k):
-                    di = self.train_discriminator(x_train, batch_size)
+                    di = self.train_discriminator(x_train, batch_size, clip)
                 ge = self.train_generator(batch_size)
     
                 self.di_real_lss.append(di[0][0])
@@ -278,7 +278,7 @@ class WGAN(BaseModel):
                             di[3] * 100, di[2], di[0][0], di[1][0], ge[0],
                             elapsed_time))
 
-                    self.show_img(3, epoch, file_name='sample_{}.png'.format(epoch))
+                    self.show_img(self.generator, self.z_dim, file_name='sample_{}.png'.format(epoch), color='gray')
                     self.save_weights(file_name='weights_{}.h5'.format(epoch))
                     self.save_models(epoch=epoch)
 

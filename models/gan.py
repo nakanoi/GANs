@@ -186,7 +186,7 @@ class GAN(BaseModel):
                     self.ge_lss.append(ge[0])
 
                 if epoch % show_every_n == 0:
-                    elapsed_time = datetime.datetime.now() - s
+                    elapsed_time = datetime.now() - s
                     print('[Epochs %d/%d] [Batch %d/%d] [D Acc %.2f Total %.4f Real %.4f Fake %.4f] [G %.4f] Time %s' %
                           (epoch, max_epochs,
                            batch_i, self.loader.n_batches,
@@ -206,7 +206,7 @@ class GAN(BaseModel):
                 x_train = train_data[0]
             else:
                 x_train, t_train = train_data
-    
+
             for epoch in range(max_epochs):
                 for j in range(self.k):
                     di = self.train_discriminator(x_train, batch_size)
@@ -219,7 +219,7 @@ class GAN(BaseModel):
                 self.ge_lss.append(ge[0])
 
                 if epoch % show_every_n == 0:
-                    elapsed_time = datetime.datetime.now() - s
+                    elapsed_time = datetime.now() - s
                     print('[Epochs %d/%d] [D Acc %.2f Total %.4f Real %.4f Fake %.4f] [G %.4f] %s' %
                           (epoch, max_epochs,
                            di[3] * 100, di[3], di[0][0], di[1][0], ge[0],

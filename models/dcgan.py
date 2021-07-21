@@ -1,5 +1,3 @@
-import matplotlib.pyplot as plt
-
 from tensorflow.keras.layers import (Input, Reshape, Dense, Conv2D,
                                      BatchNormalization, UpSampling2D,
                                      Dropout, Flatten, Conv2DTranspose,
@@ -7,26 +5,26 @@ from tensorflow.keras.layers import (Input, Reshape, Dense, Conv2D,
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
 
-from models.basemodel import BaseModel, DataLoader, np, os, datetime
+from models.basemodel import BaseModel, DataLoader, np, datetime
 
 
 class DCGAN(BaseModel):
     def __init__(self,
                  input_dim = (28, 28, 1),
-                 di_conv_filters = [64, 128, 512, 1024],
+                 di_conv_filters = [64, 64, 128, 128],
                  di_conv_kernels = [5, 5, 5, 5],
                  di_conv_strides = [2, 2, 2, 1],
                  di_batch_norm = None,
-                 di_dropout = 0.2,
+                 di_dropout = 0.4,
                  di_active = 'leakyrelu',
                  alpha = 0.2,
                  di_lr = 0.0008,
                  ge_initial_size = (7, 7, 64),
                  ge_upsample = [2, 2, 1, 1],
-                 ge_conv_filters = [512, 256, 128, 1],
+                 ge_conv_filters = [128, 64, 64, 1],
                  ge_conv_kernels = [5, 5, 5, 5],
                  ge_conv_strides = [1, 1, 1, 1],
-                 ge_batch_norm = None,
+                 ge_batch_norm = 0.9,
                  ge_active = 'relu',
                  ge_lr = 0.0004,
                  optimizer = 'adam',
@@ -256,7 +254,7 @@ class DCGAN(BaseModel):
                 for j in range(self.k):
                     di = self.train_discriminator(x_train, batch_size)
                 ge = self.train_generator(batch_size)
-    
+
                 self.di_real_lss.append(di[0][0])
                 self.di_fake_lss.append(di[1][0])
                 self.di_lss.append(di[2])
@@ -270,7 +268,7 @@ class DCGAN(BaseModel):
                             di[3] * 100, di[2], di[0][0], di[1][0], ge[0],
                             elapsed_time))
 
-                    self.show_img(3, epoch, file_name='sample_{}.png'.format(epoch))
+                    self.show_img(self.generator, self.z_dim, file_name='sample_{}.png'.format(epoch), color='gray')
                     self.save_weights(file_name='weights_{}.h5'.format(epoch))
                     self.save_models(epoch=epoch)
 
