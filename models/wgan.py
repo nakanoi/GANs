@@ -6,7 +6,7 @@ from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
 from tensorflow.keras import backend as K
 
-from models.basemodel import BaseModel, DataLoader, np
+from models.basemodel import BaseModel, DataLoader, np, datetime
 
 
 class WGAN(BaseModel):
@@ -207,42 +207,81 @@ class WGAN(BaseModel):
         fake_imgs = self.generator.predict(z)
         di_fake = self.discriminator.train_on_batch(fake_imgs, fake)
 
-        di_real, di_fake = np.array(di_real), np.array(di_fake)
-
-        di_tot = (di_real + di_fake) / 2
+        di_lss = (di_real[0] + di_fake[0]) / 2
+        di_acc = (di_real[1] + di_fake[1]) / 2
 
         for l in self.discriminator.layers:
             weights = l.get_weights()
             weights = [np.clip(w, -clip, clip) for w in weights]
             l.set_weights(weights)
 
-        return di_real, di_fake, di_tot
+        return di_real, di_fake, di_lss, di_acc
 
-    def train(self, batch_size, max_epochs, show_every_n, clip=0.01):
-        x_train, _ = self.loader.load_np_data(self.data_name)
+    def train(self,
+              batch_size,
+              max_epochs,
+              show_every_n,
+              clip=0.01,
+              train_data=None,
+              train_batch=False):
+        s = datetime.now()
+        if train_batch:
+            for epoch in range(self.epochs, max_epochs):
+                for batch_i, (x_train, y_train) in enumerate(self.loader.load_batch()): 
+                    for k in range(self.k):
+                        di = self.train_discriminator(x_train, batch_size, clip)
+                    ge = self.train_generator(batch_size)
 
-        for epoch in range(self.epochs, max_epochs):
-            for k in range(self.k):
-                di_lss = self.train_discriminator(x_train, batch_size, clip)
-            ge_lss = self.train_generator(batch_size)
+                    self.di_real_lss.append(di[0][0])
+                    self.di_fake_lss.append(di[1][0])
+                    self.di_lss.append(di[2])
+                    self.di_acc.append(di[3] * 100)
+                    self.ge_lss.append(ge[0])
 
-            di_real, di_fake, di_lss = di_lss
+                if epoch % show_every_n == 0:
+                    elapsed_time = datetime.now() - s
+                    print ('[Epochs %d/%d] [Batch %d/%d] [D Acc %.2f Total %.4f Real %.4f Fake %.4f] [G %.4f] %s' %
+                           (epoch, max_epochs,
+                            batch_i, self.loader.n_batches,
+                            di[3] * 100, di[2], di[0][0], di[1][0], ge[0],
+                            elapsed_time))
 
-            print('%d/%d [D :Loss = %.4f, Real = %.4f, Fake = %.4f, Acc = %.2f] [G :Loss = %.4f]' %
-                  (epoch, max_epochs,
-                   di_lss[0], di_real[0], di_fake[0], di_lss[1],
-                   ge_lss[0])
-                  )
+                    self.show_img(self.generator, self.z_dim, 'sample_{}.png'.format(epoch), color='gray')
+                    self.save_weights(file_name='weights_{}.h5'.format(epoch))
+                    self.save_models(epoch=epoch)
 
-            self.di_real_lss.append(di_real[0])
-            self.di_fake_lss.append(di_fake[0])
-            self.di_lss.append(di_lss[0])
-            self.ge_lss.append(ge_lss[0])
+            self.show_img(self.generator, self.z_dim, 'sample_last.png', color='gray')
+            self.save_models()
+            self.plot_loss()
 
-            if epoch % show_every_n:
-                self.show_img(self.generator, epoch, self.z_dim,
-                              self.loader.folder, color=self.color)
+        else:
+            if len(train_data) == 1:
+                x_train = train_data[0]
+            else:
+                x_train, t_train = train_data
 
-        self.save_models(self.loader.folder)
-        self.show_img()
+            for epoch in range(max_epochs):
+                for j in range(self.k):
+                    di = self.train_discriminator(x_train, batch_size, clip)
+                ge = self.train_generator(batch_size)
+    
+                self.di_real_lss.append(di[0][0])
+                self.di_fake_lss.append(di[1][0])
+                self.di_lss.append(di[2])
+                self.di_acc.append(di[3] * 100)
+                self.ge_lss.append(ge[0])
 
+                if epoch % show_every_n == 0:
+                    elapsed_time = datetime.now() - s
+                    print ('[Epochs %d/%d] [D Acc %.2f Total %.4f Real %.4f Fake %.4f] [G %.4f] Time %s' %
+                           (epoch, max_epochs,
+                            di[3] * 100, di[2], di[0][0], di[1][0], ge[0],
+                            elapsed_time))
+
+                    self.show_img(self.generator, self.z_dim, file_name='sample_{}.png'.format(epoch), color='gray')
+                    self.save_weights(file_name='weights_{}.h5'.format(epoch))
+                    self.save_models(epoch=epoch)
+
+            self.show_img(self.generator, self.z_dim, 'sample_last.png', color='gray')
+            self.save_models()
+            self.plot_loss()

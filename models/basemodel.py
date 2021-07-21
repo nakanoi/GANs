@@ -1,9 +1,11 @@
 import os, pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from datetime import datetime
 import imageio
 from glob import glob
 
+import tensorflow_datasets as tfds
 from tensorflow.keras.optimizers import (Adam, RMSprop, SGD, Adagrad,
                                          Adadelta)
 from tensorflow.keras.layers import LeakyReLU, ReLU, Activation
@@ -14,6 +16,11 @@ from tensorflow.keras.datasets import mnist
 class BaseModel:
     def __init__(self):
         self.models = {}
+        self.di_real_lss = []
+        self.di_fake_lss = []
+        self.di_lss = []
+        self.di_acc = []
+        self.ge_lss = []
 
     def optimizer(self, lr):
         opt = self.opt.lower()
@@ -53,7 +60,7 @@ class BaseModel:
             print('############### %s ###############' % (name))
             model.summary()
 
-    def show_img(self, generator, epoch, z_dim, folder, color='RGB', show=False):
+    def show_img(self, generator, z_dim, file_name, color='RGB', show=False):
         r, c = 5, 5
         noise = np.random.normal(0, 1, (r * c, z_dim))
         gen_imgs = generator.predict(noise)
@@ -70,44 +77,89 @@ class BaseModel:
                 cnt += 1
         if show:
             plt.show()
-        fig.savefig(os.path.join(folder, 'images', 'sample_{}.png'.format(epoch)))
+        fig.savefig(os.path.join(self.loader.folder, 'images', file_name))
         plt.close()
 
-    def plot_models(self, folder='.'):
-        folder = os.path.join(folder, 'plots')
+    def plot_models(self):
+        folder = os.path.join(self.loader.folder, 'plots')
         os.makedirs(folder, exist_ok=True)
 
         for name, model in self.models.items():
             file_name = os.path.join(folder, name + '.png')
             plot_model(model, to_file=file_name, show_shapes=True)
 
-    def save_params(self, folder='.'):
+    def save_params(self):
+        folder = os.path.join(self.loader.folder, 'params')
         os.makedirs(folder, exist_ok=True)
 
         file_name = os.path.join(folder, 'params.pkl')
         with open(file_name, 'wb') as f:
             pickle.dumps(*self.params, f)
 
-    def save_weights(self, folder='.', file_name='weights.h5'):
-        folder = os.path.join(folder, 'weights')
+    def save_weights(self, file_name='weights.h5'):
+        folder = os.path.join(self.loader.folder, 'weights')
         os.makedirs(folder, exist_ok=True)
 
         for name, model in self.models.items():
-            file = os.path.join(folder + name + file_name)
+            file = os.path.join(folder, name + file_name)
             model.save_weights(file)
 
-    def save_models(self, folder='.'):
-        folder = os.path.join(folder, 'models')
+    def save_models(self, epoch=''):
+        folder = os.path.join(self.loader.folder, 'models')
         os.makedirs(folder, exist_ok=True)
 
         for name, model in self.models.items():
-            file_name = os.path.join(folder, name + '.png')
+            file_name = os.path.join(folder, 'models', '{}{}.h5'.format(name, epoch))
             model.save(file_name)
 
-    def load_models(self, folder='.'):
-        for name, model in self.models.imtes():
-            file_name = os.path.join(folder, 'models', name + '.h5')
+    def load_models(self, epoch=''):
+        folder = os.path.join(self.loader.folder, 'models')
+        for name, model in self.models.items():
+            file_name = os.path.join(folder, 'models', '{}{}.h5'.format(name, epoch))
             model.load_weights(file_name)
+
+    def plot_loss(self):
+        fig = plt.figure(figsize=(150, 100))
+
+        ax1 = fig.add_subplot(231)
+        ax1.set_xlim([0, len(self.di_real_lss)])
+        ax1.set_title('Discriminator Real Loss')
+        ax1.set_xlabel('Epochs')
+        ax1.set_ylabel('Loss')
+        ax1.plot(len(self.di_real_lss), self.di_real_lss)
+
+        ax2 = fig.add_subplot(232)
+        ax2.set_xlim([0, len(self.di_fake_lss)])
+        ax2.set_title('Discriminator Fake Loss')
+        ax2.set_xlabel('Epochs')
+        ax2.set_ylabel('Loss')
+        ax2.plot(len(self.di_fake_lss), self.di_fake_lss)
+
+        ax3 = fig.add_subplot(233)
+        ax3.set_xlim([0, len(self.di_lss)])
+        ax3.set_title('Discriminator Loss')
+        ax3.set_xlabel('Epochs')
+        ax3.set_ylabel('Loss')
+        ax3.plot(len(self.di_lss), self.di_lss)
+
+        ax4 = fig.add_subplot(234)
+        ax4.set_xlim([0, len(self.ge_lss)])
+        ax4.set_title('Generator Loss')
+        ax4.set_xlabel('Epochs')
+        ax4.set_ylabel('Loss')
+        ax4.plot(len(self.ge_lss), self.ge_lss)
+
+        ax5 = fig.add_subplot(235)
+        ax5.set_xlim([0, len(self.di_acc)])
+        ax5.set_ylim([0, 100])
+        ax5.set_title('Discriminator Accuracy')
+        ax5.set_xlabel('Epochs')
+        ax5.set_ylabel('Accuracy')
+        ax5.plot(len(self.di_acc), self.di_acc)
+
+        plt.show()
+        plt.cla()
+        plt.clf()
 
 
 class DataLoader:
@@ -218,3 +270,8 @@ class DataLoader:
 
         return (x_train, y_train), (x_test, y_test)
 
+    def load_tf_data(self, split=None, nd=False):
+        ds = tfds.load(self.dataset, ) if split is None else tfds.load(self.dataset, split=split)
+        ds = tfds.as_numpy(ds) if nd else ds
+
+        return ds
