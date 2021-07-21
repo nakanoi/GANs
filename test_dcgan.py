@@ -17,7 +17,7 @@ if __name__ == '__main__':
         model.load_models()
 
     # Load Data
-    (x_train, y_train), (x_test, y_test) = model.loader.load_np_data()
+    (x_train, y_train), _ = model.loader.load_mnist()
 
     # Train
     model.train(

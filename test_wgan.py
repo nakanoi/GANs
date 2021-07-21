@@ -12,11 +12,12 @@ if __name__ == '__main__':
         data_name='mnist',
         ID=0,
         )
+    model.summary()
     if MODE == 'load':
         model.load_models()
 
     # Load Data
-    (x_train, y_train), (x_test, y_test) = model.loader.load_np_data()
+    (x_train, y_train), _ = model.loader.load_mnist()
 
     # Train
     model.train(
