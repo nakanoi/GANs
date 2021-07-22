@@ -212,18 +212,18 @@ class DataLoader:
 
     def load_data(self, domain, batch_size=1, is_testing=False):
         data_type = 'train{}'.format(domain) if not is_testing else 'test{}'.format(domain)
-        path = glob('./datasets/{}/{}/*'.foramt(self.dataset, data_type))
+        path = glob('./datasets/{}/{}/*'.format(self.dataset, data_type))
         batch_images = np.random.choice(path, size=batch_size)
-        imgs = np.array([0 for _ in range(batch_size)])
+        imgs = []
 
         for i, path in enumerate(batch_images):
             img = imageio.imread(path, pilmode=self.color).astype(np.uint8)
 
             if is_testing:
-                imgs[i] = np.array(img) / 127.5 - 1.0
+                imgs.append(np.array(img) / 127.5 - 1.0)
             else:
-                imgs[i] = np.array(img) / 127.5 - 1.0
-                imgs[i] = np.fliplr(imgs[i]) if np.random.random() > 0.5 else imgs[i]
+                imgs.append(np.array(img) / 127.5 - 1.0)
+                imgs[-1] = np.fliplr(imgs[-1]) if np.random.random() > 0.5 else imgs[-1]
 
         return np.array(imgs)
 

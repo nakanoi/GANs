@@ -19,6 +19,12 @@ class ReflectionPadding2d(Layer):
         self.input_spec = [InputSpec(ndim=4)]
         super().__init__(**kwargs)
 
+    def get_config(self):
+        config = {'padding': self.padding}
+        base_config = super().get_config()
+ 
+        return dict(list(base_config.items()) + list(config.items()))
+
     def compute_output_shape(self, input_shape):
         return (input_shape[0],
                 input_shape[1] + 2 * self.padding[0],
@@ -298,11 +304,8 @@ class CycleGAN(BaseModel):
 
         self.models.setdefault('Discriminator_A', self.di_A)
         self.models.setdefault('Discriminator_B', self.di_B)
-        self.models.setdefault('Generator_A2B', self.ge_AB)
-        self.models.setdefault('Generator_B2A', self.ge_BA)
         self.models.setdefault('Combined', self.combined)
 
-        print(self.models)
         self.di_A.trainable = True
         self.di_B.trainable = True
 
@@ -434,12 +437,12 @@ class CycleGAN(BaseModel):
                 imgs_A = self.loader.load_img('datasets/%s/testA/%s' % (self.data_name, test_A))
                 imgs_B = self.loader.load_img('datasets/%s/testB/%s' % (self.data_name, test_B))
 
-            fake_B = self.g_AB.predict(imgs_A)
-            fake_A = self.g_BA.predict(imgs_B)
-            reconstr_A = self.g_BA.predict(fake_B)
-            reconstr_B = self.g_AB.predict(fake_A)
-            id_A = self.g_BA.predict(imgs_A)
-            id_B = self.g_AB.predict(imgs_B)
+            fake_B = self.ge_AB.predict(imgs_A)
+            fake_A = self.ge_BA.predict(imgs_B)
+            reconstr_A = self.ge_BA.predict(fake_B)
+            reconstr_B = self.ge_AB.predict(fake_A)
+            id_A = self.ge_BA.predict(imgs_A)
+            id_B = self.ge_AB.predict(imgs_B)
 
             gen_imgs = np.concatenate([imgs_A, fake_B, reconstr_A, id_A, imgs_B, fake_A, reconstr_B, id_B])
             gen_imgs = 0.5 * gen_imgs + 0.5
@@ -456,7 +459,7 @@ class CycleGAN(BaseModel):
                     axs[i, j].axis('off')
                     cnt += 1
 
-            fig.savefig(os.path.join(self.loader.folder ,'images/{}_sample_{}_{}.png'.format(p, self.epoch, batch_i)))
+            fig.savefig(os.path.join(self.loader.folder ,'images/{}_sample_{}_{}.png'.format(p, self.epochs, batch_i)))
             plt.cla()
             plt.clf()
             plt.close()
